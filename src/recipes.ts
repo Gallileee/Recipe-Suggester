@@ -1,8 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-
-export const MODEL = process.env.RECIPE_MODEL ?? "claude-opus-5-5";
+import { createProvider, ProviderConfigError, ProviderError, type Provider } from "./providers/index.js";
+import type { JsonSchema } from "./providers/types.js";
 
 // ---------- Input ----------
 
@@ -18,7 +16,7 @@ export interface RecipeRequest {
   constraints: Constraints;
 }
 
-// ---------- Output (validated by structured outputs) ----------
+// ---------- Output (validated for every provider) ----------
 
 const IngredientSchema = z.object({
   name: z.string().describe("Ingredient name, e.g. 'eggs'"),
@@ -34,11 +32,27 @@ const RecipeSchema = z.object({
   steps: z.array(z.string()).describe("Step-by-step instructions, one step per item"),
 });
 
-const ResponseSchema = z.object({
+export const ResponseSchema = z.object({
   recipes: z.array(RecipeSchema).describe("Exactly three recipe suggestions"),
 });
 
 export type Recipe = z.infer<typeof RecipeSchema>;
+
+/** Plain JSON Schema for OpenAI/Gemini; drops keys their strict modes don't need or accept. */
+export function toPortableJsonSchema(schema: z.ZodType): JsonSchema {
+  const strip = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(strip);
+    if (node && typeof node === "object") {
+      return Object.fromEntries(
+        Object.entries(node)
+          .filter(([key]) => !["$schema", "minimum", "maximum"].includes(key))
+          .map(([key, value]) => [key, strip(value)]),
+      );
+    }
+    return node;
+  };
+  return strip(z.toJSONSchema(schema)) as JsonSchema;
+}
 
 // ---------- Errors ----------
 
@@ -89,13 +103,9 @@ export interface RetryOptions {
   onRetry?: (attempt: number, delayMs: number, err: unknown) => void;
 }
 
-/** Rate limits, overload, server errors, timeouts and network failures are worth retrying. */
+/** Providers mark rate limits, overload, 5xx, timeouts, network errors and malformed output as transient. */
 export function isTransient(err: unknown): boolean {
-  if (err instanceof Anthropic.APIConnectionError) return true; // includes timeouts
-  if (err instanceof Anthropic.RateLimitError) return true; // 429
-  if (err instanceof Anthropic.InternalServerError) return true; // 5xx, including 529 overloaded
-  if (err instanceof Anthropic.APIError) return err.status === 408 || err.status === 409;
-  return false;
+  return err instanceof ProviderError && err.transient;
 }
 
 export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Promise<T> {
@@ -115,70 +125,54 @@ export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Pr
 // ---------- Main entry point ----------
 
 export interface SuggestOptions {
-  client?: Anthropic;
+  provider?: Provider;
   retry?: Partial<RetryOptions>;
+}
+
+/** The provider that would be used with the current environment (for display). */
+export function currentProvider(): Provider {
+  try {
+    return createProvider(ResponseSchema);
+  } catch (err) {
+    throw err instanceof ProviderConfigError ? new RecipeError(err.message) : err;
+  }
 }
 
 export async function suggestRecipes(req: RecipeRequest, opts: SuggestOptions = {}): Promise<Recipe[]> {
   validateRequest(req);
   req = { ...req, ingredients: req.ingredients.map((i) => i.trim()).filter(Boolean) };
 
-  if (!opts.client && !process.env.ANTHROPIC_API_KEY) {
-    throw new RecipeError("ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add your key.");
-  }
-  // SDK-level retries are disabled so that our own retry loop (below) is the single, visible policy.
-  const client = opts.client ?? new Anthropic({ maxRetries: 0, timeout: 120_000 });
-
+  const provider = opts.provider ?? currentProvider();
   const retry: RetryOptions = { retries: 3, baseDelayMs: 1000, ...opts.retry };
+  const generateRequest = { system: SYSTEM_PROMPT, prompt: buildPrompt(req), jsonSchema: toPortableJsonSchema(ResponseSchema) };
 
-  let response;
   try {
-    response = await withRetry(
-      () =>
-        client.beta.messages.parse({
-          model: MODEL,
-          max_tokens: 16000,
-          // Claude Opus 5.5 always thinks; "low" effort is plenty for recipe ideas and keeps it fast.
-          output_config: { effort: "low", format: zodOutputFormat(ResponseSchema) },
-          // If a safety classifier declines, let the API retry on a suitable fallback model.
-          betas: ["server-side-fallback-2026-07-01"],
-          fallbacks: "default",
-          system: SYSTEM_PROMPT,
-          messages: [{ role: "user", content: buildPrompt(req) }],
-        }),
-      retry,
-    );
+    return await withRetry(async () => {
+      const raw = await provider.generate(generateRequest);
+      const parsed = ResponseSchema.safeParse(raw);
+      if (!parsed.success || parsed.data.recipes.length === 0) {
+        // Output that doesn't match the schema is usually a one-off; retry it.
+        throw new ProviderError(`${provider.name}: response did not match the recipe format`, true);
+      }
+      return parsed.data.recipes.slice(0, 3);
+    }, retry);
   } catch (err) {
-    throw toRecipeError(err);
+    throw toRecipeError(err, provider);
   }
-
-  if (response.stop_reason === "refusal") {
-    throw new RecipeError("The model declined this request. Try different ingredients or constraints.");
-  }
-  if (response.stop_reason === "max_tokens") {
-    throw new RecipeError("The response was cut off. Please try again.");
-  }
-  const parsed = response.parsed_output;
-  if (!parsed || parsed.recipes.length === 0) {
-    throw new RecipeError("The model returned an unexpected response. Please try again.");
-  }
-  return parsed.recipes.slice(0, 3);
 }
 
-function toRecipeError(err: unknown): Error {
-  if (err instanceof Anthropic.AuthenticationError) {
-    return new RecipeError("Invalid API key. Check ANTHROPIC_API_KEY in your .env file.");
+function toRecipeError(err: unknown, provider: Provider): Error {
+  if (!(err instanceof ProviderError)) return err instanceof Error ? err : new Error(String(err));
+  const keyVar = `${provider.name.toUpperCase()}_API_KEY`;
+  if (err.status === 401) return new RecipeError(`Invalid API key. Check ${keyVar} in your .env file.`);
+  if (err.status === 403) return new RecipeError(`This API key is not allowed to use the model "${provider.model}".`);
+  if (err.status === 404) {
+    return new RecipeError(`Model "${provider.model}" was not found. Set ${provider.name.toUpperCase()}_MODEL in .env to a model your account can use.`);
   }
-  if (err instanceof Anthropic.PermissionDeniedError) {
-    return new RecipeError("This API key is not allowed to use the model.");
+  if (err.transient) {
+    return new RecipeError(`The ${provider.name} API is temporarily unavailable (gave up after retrying): ${err.message}`);
   }
-  if (err instanceof Anthropic.BadRequestError) {
-    return new RecipeError(`Bad request: ${err.message}`);
-  }
-  if (isTransient(err)) {
-    return new RecipeError("The Claude API is temporarily unavailable (gave up after retrying). Please try again later.");
-  }
-  return err instanceof Error ? err : new Error(String(err));
+  return new RecipeError(err.message);
 }
 
 // ---------- Formatting ----------

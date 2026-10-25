@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import "dotenv/config";
 import { parseArgs } from "node:util";
-import { formatRecipe, RecipeError, suggestRecipes, type RecipeRequest } from "./recipes.js";
+import { currentProvider, formatRecipe, RecipeError, suggestRecipes, type RecipeRequest } from "./recipes.js";
 
 const HELP = `Usage: npm start -- [options] <ingredient> [ingredient ...]
 
@@ -14,7 +14,10 @@ Options (all optional):
   -t, --max-time <min>     Maximum total cook time in minutes
   -s, --servings <n>       Number of servings (default 2)
       --json               Print raw JSON instead of formatted text
-  -h, --help               Show this help`;
+  -h, --help               Show this help
+
+AI provider: chosen from the API key in .env (ANTHROPIC_API_KEY, OPENAI_API_KEY
+or GEMINI_API_KEY, in that order), or forced with PROVIDER=anthropic|openai|gemini.`;
 
 function parseNumber(value: string | undefined, name: string): number | undefined {
   if (value === undefined) return undefined;
@@ -52,8 +55,10 @@ async function main(): Promise<void> {
     },
   };
 
-  console.error("Asking Claude for recipe ideas...");
+  const provider = currentProvider();
+  console.error(`Asking ${provider.name} (${provider.model}) for recipe ideas...`);
   const recipes = await suggestRecipes(request, {
+    provider,
     retry: {
       onRetry: (attempt, delayMs, err) =>
         console.error(`Transient error (${(err as Error).message}); retry ${attempt} in ${(delayMs / 1000).toFixed(1)} s...`),

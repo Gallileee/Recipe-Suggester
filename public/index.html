@@ -92,7 +92,7 @@
     e.preventDefault();
     button.disabled = true;
     statusEl.className = "";
-    statusEl.textContent = "Asking Claude for recipe ideas…";
+    statusEl.textContent = "Asking the AI for recipe ideas…";
     results.replaceChildren();
     try {
       const res = await fetch("/api/recipes", {
