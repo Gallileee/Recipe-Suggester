@@ -113,8 +113,90 @@ Unit tests cover input validation, prompt building, the retry logic, schema vali
 
 ## Example run
 
-<!-- SAMPLE_RUN -->
-_To be filled in with a real run._
+Real run with a Gemini key in `.env` and `GEMINI_MODEL=gemini-3.6-flash` (the default `gemini-3.8-flash`
+was returning 503 "high demand" at the time). The first two attempts also hit a 503 here, so you can see the
+retry logic at work:
+
+```bash
+npm start -- "eggs, rice, spinach, garlic, parmesan" --diet vegetarian --max-time 30 --servings 2
+```
+
+```text
+Asking gemini (gemini-3.6-flash) for recipe ideas...
+Transient error (gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.); retry 1 in 1.1 s...
+Transient error (gemini API error 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.); retry 2 in 2.2 s...
+
+1. Garlic Spinach Fried Rice with Fried Eggs
+   Cook time: ~20 min | Servings: 2
+
+   Ingredients:
+     [x] cooked rice (3 cups)
+     [x] spinach (150 g)
+     [x] garlic (3 cloves)
+     [x] eggs (2 pcs)
+     [x] grated parmesan (30 g)
+     [ ] vegetable oil (1 tbsp)   <- MISSING
+     [ ] salt (1/2 tsp)   <- MISSING
+     [ ] black pepper (1/4 tsp)   <- MISSING
+
+   Steps:
+     1) Finely mince the garlic cloves and roughly chop the spinach.
+     2) Heat vegetable oil in a large skillet over medium heat.
+     3) Add minced garlic and saute for 1 minute until fragrant.
+     4) Toss in chopped spinach and stir-fry until wilted, about 2 minutes.
+     5) Add cooked rice to the skillet, breaking up any clumps, and stir-fry for 3 to 4 minutes until heated through.
+     6) Season with salt, black pepper, and fold in grated parmesan cheese.
+     7) In a separate small non-stick pan, fry the eggs to your desired doneness.
+     8) Divide the spinach fried rice between two plates and top each with a fried egg.
+
+------------------------------------------------------------
+
+2. Cheesy Spinach Garlic Omelet with Rice
+   Cook time: ~15 min | Servings: 2
+
+   Ingredients:
+     [x] eggs (4 pcs)
+     [x] spinach (100 g)
+     [x] garlic (2 cloves)
+     [x] parmesan (40 g)
+     [x] cooked rice (2 cups)
+     [ ] butter (1 tbsp)   <- MISSING
+     [ ] salt (1/2 tsp)   <- MISSING
+
+   Steps:
+     1) Warm cooked rice and divide onto two serving plates.
+     2) Whisk eggs with a pinch of salt in a medium bowl until smooth.
+     3) Melt half the butter in a pan over medium heat, add minced garlic and spinach, sautéing until wilted, then set aside.
+     4) Melt remaining butter in the skillet over medium-low heat and pour in whisked eggs.
+     5) Gently lift edges to let raw egg flow underneath until mostly set.
+     6) Sprinkle sautéed garlic spinach and grated parmesan over half of the omelet.
+     7) Fold omelet over, slice in half, and serve each portion alongside warm rice.
+
+------------------------------------------------------------
+
+3. Spinach Parmesan Egg Drop Rice Soup
+   Cook time: ~25 min | Servings: 2
+
+   Ingredients:
+     [x] cooked rice (2 cups)
+     [x] eggs (2 pcs)
+     [x] spinach (100 g)
+     [x] garlic (2 cloves)
+     [x] parmesan (30 g)
+     [ ] vegetable broth (4 cups)   <- MISSING
+     [ ] olive oil (1 tbsp)   <- MISSING
+     [ ] salt and pepper (to taste)   <- MISSING
+
+   Steps:
+     1) Heat olive oil in a soup pot over medium heat, add minced garlic, and sauté for 1 minute.
+     2) Pour in vegetable broth and bring to a gentle simmer.
+     3) Whisk eggs and grated parmesan together in a small bowl until combined.
+     4) Stir cooked rice and spinach into the simmering broth until spinach wilts.
+     5) Slowly drizzle egg and parmesan mixture into the simmering soup while stirring gently to form egg ribbons.
+     6) Season with salt and pepper to taste, then ladle into two bowls and serve hot.
+
+[x] = you have it   [ ] = missing, need to buy
+```
 
 ## Project structure
 
