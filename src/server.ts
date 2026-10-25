@@ -49,7 +49,10 @@ const server = http.createServer(async (req, res) => {
         },
       };
       const recipes = await suggestRecipes(request, {
-        retry: { onRetry: (attempt, delayMs) => console.warn(`Transient API error, retry ${attempt} in ${delayMs} ms`) },
+        retry: {
+          onRetry: (attempt, delayMs, err) =>
+            console.warn(`Transient API error (${(err as Error).message}), retry ${attempt} in ${delayMs} ms`),
+        },
       });
       sendJson(res, 200, { recipes });
       return;

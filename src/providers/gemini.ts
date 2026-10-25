@@ -1,7 +1,8 @@
 import { parseModelJson, postJson } from "./http.js";
 import { ProviderError, type GenerateRequest, type Provider } from "./types.js";
 
-export const GEMINI_DEFAULT_MODEL = "gemini-3.8-flash";
+// gemini-3.8-flash is newer but was often overloaded (503) on the free tier; 3.6 is the reliable default.
+export const GEMINI_DEFAULT_MODEL = "gemini-3.6-flash";
 
 /** Google Gemini API (generateContent) with JSON output constrained by a JSON Schema. */
 export function createGeminiProvider(apiKey: string): Provider {

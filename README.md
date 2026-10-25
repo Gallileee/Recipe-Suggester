@@ -50,7 +50,7 @@ npm run build
 | `PROVIDER`          | no              | auto               | Force a provider: `anthropic`, `openai` or `gemini`.     |
 | `ANTHROPIC_MODEL`   | no              | `claude-opus-5-5`  | Claude model.                                            |
 | `OPENAI_MODEL`      | no              | `gpt-6-luna`       | OpenAI model.                                            |
-| `GEMINI_MODEL`      | no              | `gemini-3.8-flash` | Gemini model.                                            |
+| `GEMINI_MODEL`      | no              | `gemini-3.6-flash` | Gemini model (newer `gemini-3.8-flash` also works, but was often overloaded). |
 | `PORT`              | no              | `3000`             | Port for the web UI (`npm run web`).                     |
 
 Variables can be set in the shell or in a `.env` file in the project root (loaded with `dotenv`).
@@ -62,7 +62,7 @@ Variables can be set in the shell or in a `.env` file in the project root (loade
 2. Otherwise the app uses the first key it finds, in this order: `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `GEMINI_API_KEY`.
 3. If no key is set, the app tells you to create `.env`.
 
-The CLI prints which provider and model it is using, e.g. `Asking gemini (gemini-3.8-flash) for recipe ideas...`.
+The CLI prints which provider and model it is using, e.g. `Asking gemini (gemini-3.6-flash) for recipe ideas...`.
 
 | Provider  | How it is called                                                                   |
 | --------- | ---------------------------------------------------------------------------------- |
@@ -113,8 +113,8 @@ Unit tests cover input validation, prompt building, the retry logic, schema vali
 
 ## Example run
 
-Real run with a Gemini key in `.env` and `GEMINI_MODEL=gemini-3.6-flash` (the default `gemini-3.8-flash`
-was returning 503 "high demand" at the time). The first two attempts also hit a 503 here, so you can see the
+Real run with a Gemini key in `.env` (default model `gemini-3.6-flash`). The first two attempts hit a
+503 "high demand" error, so you can see the
 retry logic at work:
 
 ```bash
