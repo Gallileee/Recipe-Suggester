@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recipe Suggester</title>
+  <style>
+    :root { --bg: #fafaf7; --card: #fff; --text: #222; --muted: #666; --accent: #2f7d4f; --miss: #c0392b; --border: #e3e3dc; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #18191b; --card: #232427; --text: #eee; --muted: #aaa; --accent: #5fc489; --miss: #ff7b6b; --border: #34363a; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { margin: 0 0 4px; }
+    p.lead { margin: 0 0 20px; color: var(--muted); }
+    form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+    label { display: flex; flex-direction: column; font-size: 14px; color: var(--muted); gap: 4px; }
+    label.full { grid-column: 1 / -1; }
+    input { font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+    button { grid-column: 1 / -1; font: inherit; font-weight: 600; padding: 10px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    #status { margin: 16px 0; color: var(--muted); }
+    #status.error { color: var(--miss); }
+    article { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; }
+    article h2 { margin: 0 0 4px; font-size: 20px; }
+    .meta { color: var(--muted); font-size: 14px; margin-bottom: 12px; }
+    ul.ing { list-style: none; padding: 0; margin: 0 0 12px; }
+    ul.ing li::before { content: "✓ "; color: var(--accent); }
+    ul.ing li.missing::before { content: "✗ "; color: var(--miss); }
+    ul.ing li.missing { color: var(--miss); }
+    @media (max-width: 560px) { form { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Recipe Suggester</h1>
+  <p class="lead">Tell me what's in your fridge and I'll suggest three recipes.</p>
+
+  <form id="form">
+    <label class="full">Ingredients (comma-separated) *
+      <input name="ingredients" required placeholder="eggs, rice, spinach, garlic, parmesan">
+    </label>
+    <label>Dietary restriction <input name="dietary" placeholder="vegetarian"></label>
+    <label>Cuisine <input name="cuisine" placeholder="italian"></label>
+    <label>Max cook time (min) <input name="maxCookTimeMinutes" type="number" min="1"></label>
+    <label>Servings <input name="servings" type="number" min="1" placeholder="2"></label>
+    <button id="submit">Suggest recipes</button>
+  </form>
+
+  <div id="status"></div>
+  <section id="results"></section>
+</main>
+
+<script>
+  const form = document.getElementById("form");
+  const statusEl = document.getElementById("status");
+  const results = document.getElementById("results");
+  const button = document.getElementById("submit");
+
+  function el(tag, attrs = {}, text) {
+    const e = document.createElement(tag);
+    Object.assign(e, attrs);
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function render(recipes) {
+    results.replaceChildren();
+    for (const r of recipes) {
+      const card = el("article");
+      card.append(el("h2", {}, r.title));
+      const missing = r.ingredients.filter((i) => !i.inFridge).length;
+      card.append(el("div", { className: "meta" },
+        `~${r.estimatedCookTimeMinutes} min · ${r.servings} servings · ${missing} missing ingredient(s)`));
+      card.append(el("h3", {}, "Ingredients"));
+      const ul = el("ul", { className: "ing" });
+      for (const i of r.ingredients) {
+        ul.append(el("li", { className: i.inFridge ? "" : "missing" },
+          `${i.name} (${i.quantity})${i.inFridge ? "" : " — missing"}`));
+      }
+      card.append(ul);
+      card.append(el("h3", {}, "Steps"));
+      const ol = el("ol");
+      for (const s of r.steps) ol.append(el("li", {}, s));
+      card.append(ol);
+      results.append(card);
+    }
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    button.disabled = true;
+    statusEl.className = "";
+    statusEl.textContent = "Asking Claude for recipe ideas…";
+    results.replaceChildren();
+    try {
+      const res = await fetch("/api/recipes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.fromEntries(new FormData(form))),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      statusEl.textContent = "";
+      render(data.recipes);
+    } catch (err) {
+      statusEl.className = "error";
+      statusEl.textContent = "Error: " + err.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
